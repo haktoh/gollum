@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { roleFromClaims,madridDay,summarize,validRange,eventWrite } from '../src/model.js';
+import { commitEvent } from '../src/storage.js';
+const event={id:'a8268bf2-3e97-44d0-9586-894fca9e50d9',kind:'guapa',at:'2026-09-09T22:30:00.000Z'};
+test('El selector de perfil no concede permisos',()=>{assert.equal(roleFromClaims({} ),null);assert.equal(roleFromClaims({role:'therapist'}),null);assert.equal(roleFromClaims({role:'therapist',patientId:'patient1'}),'therapist');assert.equal(roleFromClaims({role:'patient'}),'patient');});
+test('Días de Madrid: medianoche, invierno y cambio de horario',()=>{assert.equal(madridDay(new Date('2026-09-09T22:30:00Z')),'2026-09-10');assert.equal(madridDay(new Date('2026-12-09T22:30:00Z')),'2026-12-09');assert.equal(madridDay(new Date('2026-03-29T22:30:00Z')),'2026-03-30');});
+test('Recuentos por día y límites de fecha',()=>{assert.deepEqual(summarize([{kind:'guapa',occurredAt:new Date('2026-09-09T22:30:00Z')},{kind:'fea',occurredAt:new Date('2026-09-10T02:30:00Z')},{kind:'guapa',occurredAt:new Date('2026-09-11T12:00:00Z')}],'2026-09-10','2026-09-10'),[{day:'2026-09-10',guapa:1,fea:1}]);assert.equal(validRange('2026-02-30','2026-03-02'),false);assert.equal(validRange('2026-09-09','2026-09-01'),false);});
+test('El reintento conserva ID, campos y fecha sin sumar otro documento',()=>{const first=eventWrite('demo-registro','patient1',event);const retry=eventWrite('demo-registro','patient1',structuredClone(event));assert.deepEqual(first,retry);assert.equal(first.writes.length,1);assert.equal('transform' in first.writes[0],false);});
+test('No confirmar un fallo HTTP o una respuesta sin confirmación de commit',async()=>{const args={projectId:'demo-registro',user:{uid:'patient1',getIdToken:async()=>'fake-token'},event};await assert.rejects(commitEvent({...args,fetcher:async()=>new Response('{}',{status:403})}));await assert.rejects(commitEvent({...args,fetcher:async()=>new Response('{}',{status:200})}));await commitEvent({...args,fetcher:async()=>Response.json({commitTime:'now',writeResults:[{}]})});});

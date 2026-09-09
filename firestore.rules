@@ -1,0 +1,34 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function verified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function patient() {
+      return verified() && request.auth.token.role == 'patient';
+    }
+    function therapist(patientId) {
+      return verified() && request.auth.token.role == 'therapist'
+        && request.auth.token.patientId == patientId;
+    }
+    match /patients/{patientId}/events/{eventId} {
+      function validEvent() {
+        let data = request.resource.data;
+        return data.keys().hasAll(['kind','occurredAt'])
+          && data.keys().hasOnly(['kind','occurredAt'])
+          && data.kind in ['guapa','fea']
+          && data.occurredAt is timestamp
+          && eventId.matches('^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$');
+      }
+      allow read: if therapist(patientId);
+      allow create: if patient() && request.auth.uid == patientId && validEvent()
+        && request.resource.data.occurredAt <= request.time + duration.value(5, 'm');
+      // Solo se admite repetir EXACTAMENTE la misma pulsación. Nunca cambiarla.
+      allow update: if patient() && request.auth.uid == patientId
+        && request.resource.data == resource.data;
+      allow delete: if false;
+    }
+    // Nadie puede darse permisos escribiendo perfiles o cualquier otra colección.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
