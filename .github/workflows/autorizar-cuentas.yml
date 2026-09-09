@@ -1,0 +1,63 @@
+name: Autorizar paciente y psicóloga
+
+on:
+  workflow_dispatch:
+    inputs:
+      patient_email:
+        description: Correo de la cuenta del paciente, ya registrada y verificada
+        required: true
+        type: string
+      therapist_email:
+        description: Correo de la cuenta de la psicóloga, ya registrada y verificada
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-autorizar-cuentas
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Comprobar proyecto y correos
+        env:
+          PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          PATIENT_EMAIL: ${{ inputs.patient_email }}
+          THERAPIST_EMAIL: ${{ inputs.therapist_email }}
+        run: |
+          node --input-type=module <<'JS'
+          const {PROJECT_ID,PATIENT_EMAIL,THERAPIST_EMAIL}=process.env;
+          if (!PROJECT_ID?.trim()) throw Error('Falta la variable VITE_FIREBASE_PROJECT_ID.');
+          const valid = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value?.trim() || '');
+          if (!valid(PATIENT_EMAIL) || !valid(THERAPIST_EMAIL)) throw Error('Introduce dos correos válidos.');
+          if (PATIENT_EMAIL.trim().toLowerCase() === THERAPIST_EMAIL.trim().toLowerCase()) throw Error('Las cuentas deben ser distintas.');
+          JS
+      - name: Instalar dependencias en GitHub
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Autenticación de administración de Firebase
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+          cleanup_credentials: true
+      - name: Autorizar las dos cuentas
+        env:
+          PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          PATIENT_EMAIL: ${{ inputs.patient_email }}
+          THERAPIST_EMAIL: ${{ inputs.therapist_email }}
+        run: npm run authorize -- --project "$PROJECT_ID" --patient-email "$PATIENT_EMAIL" --therapist-email "$THERAPIST_EMAIL"
